@@ -61,3 +61,10 @@ typings/
 .nyc_output
 yarn.lock
 package-lock.json
+
+
+###### Specific for this project ######
+config.json
+
+
+.vscode

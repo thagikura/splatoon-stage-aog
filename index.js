@@ -15,14 +15,19 @@
 
 'use strict';
 
-const request = require('request-promise');
-const config = require('./config.json');
+const request = require('request');
+const moment = require('moment-timezone');
+
+const IKSM_SESSION = "[REDACTED]";
+const TIME_ZONE = "Asia/Tokyo"
 
 /**
  * Get and store the stage information
+ * 
+ * @param {Object} execOptions
  */
-async function getStages() {
-  const iksm = 'iksm_session=' + config.IKSM_SESSION;
+function getStages(execOptions) {
+  const iksm = 'iksm_session=' + IKSM_SESSION;
   const cookie = request.cookie(iksm);
   const headers = {
     'Cookie': cookie
@@ -34,15 +39,15 @@ async function getStages() {
     headers: headers
   };
   
-  try {
-    const result = await request(options);
-    const json = JSON.parse(result);
-    json.retrievedAt = new Date();
-    return json;
-  } catch (err) {
-    console.log(err);
-  }
-};
+  const result = request(options, function(error, response, body) {
+    const stagesJson = JSON.parse(body);
+    const m = currentMoment();
+    stagesJson.retrievedAt = m.unix();
+
+    execOptions.callback(stagesJson);
+  });
+  // return json;
+}
 exports.getStages = getStages;
 
 /**
@@ -51,37 +56,37 @@ exports.getStages = getStages;
  * @param {String} rule the string representation of the rule, the user is trying to look for the next round.
  * @param {Boolean} isLeague If true, find the next round that matches the rule in the league battle.
  */
-async function buildSpeechTextByRule(rule, isLeague) {
-  const now = new Date();
-  // TODO: Cache stage information
-  const stages = await getStages();
+function buildSpeechTextByRule(rule, isLeague) {
 
-  const matchedRounds = [];
-  if (isLeague) {
-    stages.league.forEach( function (item) {
-      if (item.rule.name === rule) {
-        matchedRounds.push(item);
-      }
-    })
-  } else {
-    stages.gachi.forEach( function (item) {
-      if (item.rule.name === rule) {
-        matchedRounds.push(item);
-      }
-    })
+  const buildText = function(stages) {
+    const matchedRounds = [];
+    if (isLeague) {
+      stages.league.forEach( function (item) {
+        if (item.rule.name === rule) {
+          matchedRounds.push(item);
+        }
+      })
+    } else {
+      stages.gachi.forEach( function (item) {
+        if (item.rule.name === rule) {
+          matchedRounds.push(item);
+        }
+      })
+    }
+    console.log(matchedRounds);
+
+    let speechText = buildFindByRuleText(rule, matchedRounds, isLeague); 
+    console.log(speechText);
   }
-  console.log(matchedRounds);
 
-  let speechText = buildFindByRuleText(rule, matchedRounds, isLeague); 
-  console.log(speechText);
-  return speechText; 
-};
-exports.buildSpeechTextByRule = buildSpeechTextByRule;
-
-function isOlderThanTwoHours(date1, date2) {
-  let hours = Math.abs(date1 - date2) / 60 * 60 * 1000
-  return hours >= 2;
+  // TODO: Cache stage information
+  const options = {
+    callback: buildText,
+    isLeague: isLeague
+  };
+  const stages = getStages(options);
 }
+exports.buildSpeechTextByRule = buildSpeechTextByRule;
 
 function buildFindByRuleText(rule, matchedRounds, isLeague) {
   let text = "次の" + rule + "は、";
@@ -113,22 +118,24 @@ function extractStages(round) {
 
 function getReadableHours(timeSeconds) {
   let text = "";
-  const d = toDate(timeSeconds);
-  const now = new Date();
-  if (d.getDate() > now.getDate()) {
-    text += "明日の" + d.getHours();
+  const d = moment.unix(timeSeconds);
+  d.tz(TIME_ZONE);
+  const now = currentMoment();
+  if (d.date() > now.date()) {
+    text += "明日の" + d.hours();
   } else {
-    text += d.getHours();
+    text += d.hours();
   }
   return text;
 }
 
 function isStarted(round) {
-  return round.start_time * 1000 < new Date().getTime();
+  const m = currentMoment();
+  return round.start_time < m.unix();
 }
 
-function toDate(timeSeconds) {
-  return new Date(timeSeconds * 1000);
+function currentMoment() {
+  return moment().tz(TIME_ZONE);
 }
 
-// findByRule("ガチヤグラ", false)
+buildSpeechTextByRule("ガチエリア", true)
